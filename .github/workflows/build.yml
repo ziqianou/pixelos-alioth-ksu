@@ -39,7 +39,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential bc bison flex libssl-dev libelf-dev \
+            build-essential bc bison flex libssl-dev libelf-dev ccache \
             python3 zip unzip lz4 cpio kmod curl git \
             clang-18 llvm-18 lld-18 libclang-common-18-dev \
             gcc-aarch64-linux-gnu
@@ -71,6 +71,22 @@ jobs:
           grep -q 'obj-$(CONFIG_KSU) += kernelsu/' kernel/drivers/Makefile
           grep -q 'drivers/kernelsu/Kconfig' kernel/drivers/Kconfig
 
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ inputs.kernel_ref }}-${{ hashFiles('patches/**','config/**','ksu/**') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ inputs.kernel_ref }}-
+            ${{ runner.os }}-ccache-
+
+      - name: Configure ccache
+        run: |
+          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_COMPRESS=true" >> "$GITHUB_ENV"
+          echo "CCACHE_MAXSIZE=3G" >> "$GITHUB_ENV"
+          ccache --version | head -1
+
       - name: Configure
         run: |
           cd kernel
@@ -82,7 +98,9 @@ jobs:
           mkdir -p out
           cp ../config/device.config out/.config
           scripts/kconfig/merge_config.sh -O out -m out/.config ../config/ksu.fragment
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 HOSTCC=gcc HOSTCXX=g++ olddefconfig
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            CC="ccache clang" CXX="ccache clang++" \
+            HOSTCC="ccache gcc" HOSTCXX="ccache g++" olddefconfig
           grep -q '^CONFIG_KSU=y' out/.config
           grep -q '^CONFIG_KSU_SUSFS=y' out/.config
           grep -q '^CONFIG_LTO_NONE=y' out/.config
@@ -90,8 +108,11 @@ jobs:
       - name: Build Image
         run: |
           cd kernel
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 HOSTCC=gcc HOSTCXX=g++ \
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            CC="ccache clang" CXX="ccache clang++" \
+            HOSTCC="ccache gcc" HOSTCXX="ccache g++" \
             -j"${{ inputs.jobs }}" Image
+          ccache -s || true
           test -f out/arch/arm64/boot/Image
           echo "kernel.release: $(cat out/include/config/kernel.release)"
           test "$(cat out/include/config/kernel.release)" = "4.19.325-cip135-st19-perf-g2fbe35cee4e6"
