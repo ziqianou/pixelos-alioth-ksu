@@ -1,0 +1,16 @@
+# KernelSU-Next + SUSFS (non-GKI, manual hook)
+CONFIG_KSU=y
+CONFIG_KSU_MANUAL_HOOK=y
+CONFIG_KSU_SUSFS=y
+
+# Match the running PixelOS 17 kernel vermagic exactly, so /vendor .ko modules load.
+# The workflow overwrites localversion-cip/-st with -cip135 / -st19.
+CONFIG_LOCALVERSION="-perf-g2fbe35cee4e6"
+# CONFIG_LOCALVERSION_AUTO is not set
+
+# Hosted runners are disk/RAM constrained. KSU/SUSFS do not need LTO/CFI, and
+# vendor modules are matched by vermagic + symbol CRCs (type based), not LTO.
+CONFIG_LTO_NONE=y
+# CONFIG_LTO_CLANG is not set
+# CONFIG_CFI_CLANG is not set
+# CONFIG_CFI_CLANG_SHADOW is not set

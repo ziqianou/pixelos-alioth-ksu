@@ -1,0 +1,133 @@
+name: Build PixelOS alioth KernelSU kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: "PixelOS alioth ROM zip (must contain payload.bin)"
+        required: true
+        default: "https://download.pixelos.net/seventeen/alioth/PixelOS_alioth-17.0-20260922-1500.zip"
+      kernel_ref:
+        description: "LineageOS android_kernel_xiaomi_sm8250 commit"
+        required: true
+        default: "6b34d24765327d746074c8e53b5ad0d24a51acc7"
+      jobs:
+        description: "make -j value"
+        required: false
+        default: "4"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/lib/jvm \
+            /usr/local/lib/node_modules
+          sudo apt-get clean
+          df -h
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential bc bison flex libssl-dev libelf-dev \
+            python3 zip unzip lz4 cpio kmod curl git \
+            clang-18 llvm-18 lld-18 libclang-common-18-dev \
+            gcc-aarch64-linux-gnu
+          sudo apt-get install -y gcc-arm-linux-gnueabi || \
+            sudo apt-get install -y gcc-arm-linux-gnueabihf || true
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
+
+      - name: Clone kernel source
+        run: |
+          git init kernel
+          git -C kernel remote add origin https://github.com/LineageOS/android_kernel_xiaomi_sm8250.git
+          git -C kernel fetch --depth 1 origin "${{ inputs.kernel_ref }}"
+          git -C kernel checkout FETCH_HEAD
+          git -C kernel rev-parse HEAD
+
+      - name: Apply KernelSU + SUSFS integration patch
+        run: |
+          cd kernel
+          patch -p1 --forward < ../patches/kernelsu-susfs.diff
+          if find . -name '*.rej' | grep -q .; then
+            echo "::error::patch produced rejects"
+            find . -name '*.rej' -print
+            exit 1
+          fi
+
+      - name: Add KernelSU source
+        run: |
+          cp -r ksu/drivers_kernelsu kernel/drivers/kernelsu
+          grep -q 'obj-$(CONFIG_KSU) += kernelsu/' kernel/drivers/Makefile
+          grep -q 'drivers/kernelsu/Kconfig' kernel/drivers/Kconfig
+
+      - name: Configure
+        run: |
+          cd kernel
+          printf -- '-cip135' > localversion-cip
+          printf -- '-st19' > localversion-st
+          mkdir -p out
+          cp ../config/device.config out/.config
+          scripts/kconfig/merge_config.sh -O out -m out/.config ../config/ksu.fragment
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 HOSTCC=gcc HOSTCXX=g++ olddefconfig
+          grep -q '^CONFIG_KSU=y' out/.config
+          grep -q '^CONFIG_KSU_SUSFS=y' out/.config
+          grep -q '^CONFIG_LTO_NONE=y' out/.config
+
+      - name: Build Image
+        run: |
+          cd kernel
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 HOSTCC=gcc HOSTCXX=g++ \
+            -j"${{ inputs.jobs }}" Image
+          test -f out/arch/arm64/boot/Image
+          echo "kernel.release: $(cat out/include/config/kernel.release)"
+          test "$(cat out/include/config/kernel.release)" = "4.19.325-cip135-st19-perf-g2fbe35cee4e6"
+
+      - name: Fetch stock boot.img from PixelOS ROM
+        run: |
+          curl -L --retry 3 --retry-delay 5 -o rom.zip "${{ inputs.rom_url }}"
+          unzip -p rom.zip payload.bin > payload.bin
+          curl -L --retry 3 -o pdg.tar.gz \
+            https://github.com/ssut/payload-dumper-go/releases/download/2.1.0/payload-dumper-go_2.1.0_linux_amd64.tar.gz
+          tar xzf pdg.tar.gz
+          ./payload-dumper-go -o dump -p boot payload.bin
+          ls -lh dump
+          rm -f rom.zip payload.bin
+
+      - name: Repack boot.img with the new kernel
+        run: |
+          git clone --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg tools-mkbootimg
+          python3 tools-mkbootimg/unpack_bootimg.py \
+            --boot_img dump/boot.img --out boot_out --format=mkbootimg > mkbootimg.args
+          cp kernel/out/arch/arm64/boot/Image boot_out/kernel
+          sh -c "python3 tools-mkbootimg/mkbootimg.py $(cat mkbootimg.args) --output boot-ksu.img"
+          ls -lh boot-ksu.img
+          sha256sum boot-ksu.img kernel/out/arch/arm64/boot/Image > SHA256SUMS
+
+      - name: Fetch KernelSU-Next manager
+        run: |
+          curl -L --retry 3 -o KernelSU_Next_v3.4.2_33355-release.apk \
+            https://github.com/KernelSU-Next/KernelSU-Next/releases/download/v3.4.2/KernelSU_Next_v3.4.2_33355-release.apk
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixelos-alioth-ksu-${{ github.run_number }}
+          if-no-files-found: error
+          path: |
+            boot-ksu.img
+            SHA256SUMS
+            KernelSU_Next_v3.4.2_33355-release.apk
+            kernel/out/arch/arm64/boot/Image
+            kernel/out/System.map
+            kernel/out/.config
