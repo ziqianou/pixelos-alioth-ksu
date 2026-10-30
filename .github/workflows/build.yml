@@ -74,6 +74,9 @@ jobs:
       - name: Configure
         run: |
           cd kernel
+          # The tree is dirty (patch + KSU source), which makes setlocalversion
+          # append "+" to the vermagic. Drop the git metadata so vermagic is exact.
+          rm -rf .git
           printf -- '-cip135' > localversion-cip
           printf -- '-st19' > localversion-st
           mkdir -p out
