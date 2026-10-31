@@ -8,9 +8,9 @@ on:
         required: true
         default: "https://download.pixelos.net/seventeen/alioth/PixelOS_alioth-17.0-20260922-1500.zip"
       kernel_ref:
-        description: "LineageOS android_kernel_xiaomi_sm8250 commit"
+        description: "grill-glitch/kernel_xiaomi_sm8250 commit"
         required: true
-        default: "6b34d24765327d746074c8e53b5ad0d24a51acc7"
+        default: "d736f87b1b7e07d1be1f73e94a2b208b6265274a"
       jobs:
         description: "make -j value"
         required: false
@@ -50,20 +50,10 @@ jobs:
       - name: Clone kernel source
         run: |
           git init kernel
-          git -C kernel remote add origin https://github.com/LineageOS/android_kernel_xiaomi_sm8250.git
+          git -C kernel remote add origin https://github.com/grill-glitch/kernel_xiaomi_sm8250.git
           git -C kernel fetch --depth 1 origin "${{ inputs.kernel_ref }}"
           git -C kernel checkout FETCH_HEAD
           git -C kernel rev-parse HEAD
-
-      - name: Apply KernelSU + SUSFS integration patch
-        run: |
-          cd kernel
-          patch -p1 --forward < ../patches/kernelsu-susfs.diff
-          if find . -name '*.rej' | grep -q .; then
-            echo "::error::patch produced rejects"
-            find . -name '*.rej' -print
-            exit 1
-          fi
 
       - name: Add KernelSU source
         run: |
