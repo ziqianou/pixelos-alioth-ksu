@@ -6,7 +6,7 @@ on:
       rom_url:
         description: "PixelOS alioth ROM zip (must contain payload.bin)"
         required: true
-        default: "https://download.pixelos.net/seventeen/alioth/PixelOS_alioth-17.0-20260922-1500.zip"
+        default: "https://sourceforge.net/projects/pixelos-releases/files/seventeen/alioth/PixelOS_alioth-17.0-20260922-1500.zip/download"
       kernel_ref:
         description: "grill-glitch/kernel_xiaomi_sm8250 commit"
         required: true
@@ -114,9 +114,15 @@ jobs:
           path: ~/.ccache
           key: ${{ runner.os }}-ccache-${{ inputs.kernel_ref }}-${{ github.run_id }}
 
+      - name: Upload kernel Image (early)
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-image-${{ github.run_number }}
+          path: kernel/out/arch/arm64/boot/Image
+
       - name: Fetch stock boot.img from PixelOS ROM
         run: |
-          curl -L --retry 3 --retry-delay 5 -o rom.zip "${{ inputs.rom_url }}"
+          curl -L --max-time 1800 --connect-timeout 30 --retry 3 --retry-delay 5 -o rom.zip "${{ inputs.rom_url }}"
           unzip -p rom.zip payload.bin > payload.bin
           curl -L --retry 3 -o pdg.tar.gz \
             https://github.com/ssut/payload-dumper-go/releases/download/2.1.0/payload-dumper-go_2.1.0_linux_amd64.tar.gz
