@@ -61,6 +61,12 @@ jobs:
           grep -q 'obj-$(CONFIG_KSU) += kernelsu/' kernel/drivers/Makefile
           grep -q 'drivers/kernelsu/Kconfig' kernel/drivers/Kconfig
 
+      - name: Apply kernel-side KSU hooks
+        run: |
+          # Android 17 libbase reads exactly fstat(2)'s st_size, so the
+          # appended KSU init.rc is only seen if newfstat reports it.
+          patch -p1 -d kernel < patches/ksu-newfstat-hook.patch
+
       - name: Restore ccache
         uses: actions/cache@v4
         with:

@@ -1,0 +1,29 @@
+Android's libbase ReadFdToString() fstats the file and then reads exactly
+st_size bytes (it never loops past EOF).  KernelSU appends its init.rc
+through a read proxy at EOF, so unless st_size is grown here init stops
+reading before the appended rules are reached.  libc's fstat(2) is the
+newfstat syscall on arm64, so hook that one.
+
+--- a/fs/stat.c
++++ b/fs/stat.c
+@@ -453,6 +453,20 @@
+ 	if (!error)
+ 		error = cp_new_stat(&stat, statbuf);
+ 
++#ifdef CONFIG_KSU
++	/*
++	 * Android's libbase sizes its read buffer from fstat(2).  init.rc is
++	 * served through a kernel-side proxy that appends the KernelSU rc at
++	 * EOF, so report the extra length here or init stops reading before it
++	 * ever reaches the appended rules.
++	 */
++	if (!error) {
++		extern void ksu_handle_newfstat_ret(unsigned int *fd,
++						    struct stat __user **statbuf_ptr);
++		ksu_handle_newfstat_ret(&fd, &statbuf);
++	}
++#endif
++
+ 	return error;
+ }
+ 

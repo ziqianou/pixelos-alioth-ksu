@@ -26,6 +26,7 @@ CI 中关闭 LTO/CFI（runner 磁盘/内存有限）；KSU/SUSFS 不依赖它们
 ```
 .github/workflows/build.yml      # 编译 + 重打包
 patches/kernelsu-susfs.diff      # KernelSU-Next + SUSFS 内核集成补丁
+patches/ksu-newfstat-hook.patch  # 让 fstat(2) 报告追加的 KSU init.rc 长度（Android 17 init）
 config/device.config             # 从设备 /proc/config.gz 导出的完整配置
 config/ksu.fragment              # KSU/SUSFS/vermagic/LTO 覆盖
 ksu/drivers_kernelsu/            # KernelSU-Next + SUSFS 内核源码
