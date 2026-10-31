@@ -21,6 +21,7 @@
 #endif
 #include <linux/ptrace.h>
 #include <linux/fcntl.h>
+#include <linux/string.h>
 
 #include "objsec.h"
 
@@ -88,12 +89,32 @@ static char __user *ksud_user_path(void)
 	return userspace_stack_buffer(ksud_path, sizeof(ksud_path));
 }
 
+/*
+ * App zygotes (the per-app zygote used for isolated processes) run as root
+ * while preloading and then drop to the app UID.  Their SELinux domain is
+ * bounded, so KSU's su_compat cannot transition them to the KSU domain:
+ * escape_with_root_profile() fails and the resulting EACCES/abort kills the
+ * app zygote, which makes system_server wait ~2 minutes for its socket.
+ *
+ * Leave su lookups/execs alone in these processes so they simply fail as a
+ * normal unprivileged exec instead of breaking the app zygote.
+ */
+static bool is_app_zygote_process(void)
+{
+	return !strcmp(current->comm, "_process_zygote") ||
+	       !strcmp(current->comm, "zygote-child");
+}
+
 int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
 		int *mode, int *__unused_flags)
 {
 	const char su[] = SU_PATH;
 
 	if (!ksu_su_compat_enabled) {
+		return 0;
+	}
+
+	if (unlikely(is_app_zygote_process())) {
 		return 0;
 	}
 
@@ -120,6 +141,10 @@ int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags)
 	const char su[] = SU_PATH;
 
 	if (!ksu_su_compat_enabled){
+		return 0;
+	}
+
+	if (unlikely(is_app_zygote_process())) {
 		return 0;
 	}
 
@@ -163,6 +188,9 @@ static long ksu_handle_execve_sucompat_common(const char __user **filename_user,
 		goto do_orig_execve;
 
 	if (!ksu_su_compat_enabled)
+		goto do_orig_execve;
+
+	if (unlikely(is_app_zygote_process()))
 		goto do_orig_execve;
 
 	if (!ksu_is_allow_uid_for_current(current_uid().val))
@@ -242,6 +270,9 @@ int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
 		return 0;
 
 	if (!ksu_su_compat_enabled)
+		return 0;
+
+	if (unlikely(is_app_zygote_process()))
 		return 0;
 
 	if (!ksu_is_allow_uid_for_current(current_uid().val))
