@@ -140,8 +140,8 @@ jobs:
 
       - name: Fetch KernelSU-Next manager
         run: |
-          curl -L --retry 3 -o KernelSU_Next_v3.4.2_33355-release.apk \
-            https://github.com/KernelSU-Next/KernelSU-Next/releases/download/v3.4.2/KernelSU_Next_v3.4.2_33355-release.apk
+          curl -L --retry 3 -o KernelSU_Next_v3.4.0_33294-release.apk \
+            https://github.com/KernelSU-Next/KernelSU-Next/releases/download/v3.4.0/KernelSU_Next_v3.4.0_33294-release.apk
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -151,7 +151,7 @@ jobs:
           path: |
             boot-ksu.img
             SHA256SUMS
-            KernelSU_Next_v3.4.2_33355-release.apk
+            KernelSU_Next_v3.4.0_33294-release.apk
             kernel/out/arch/arm64/boot/Image
             kernel/out/System.map
             kernel/out/.config
