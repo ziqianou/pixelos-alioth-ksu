@@ -49,6 +49,7 @@ static const char KERNEL_SU_RC[] =
 	"\n"
 
 	"on post-fs-data\n"
+	"    load_policy\n"
 	"    start logd\n"
 	// We should wait for the post-fs-data finish
 	"    exec u:r:" KERNEL_SU_DOMAIN ":s0 root -- " KSUD_PATH " post-fs-data\n"
