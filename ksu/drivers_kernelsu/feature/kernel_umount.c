@@ -79,7 +79,7 @@ static void ksu_sys_umount(const char *mnt, int flags)
 
 #endif
 
-static void try_umount(const char *mnt, int flags)
+void try_umount(const char *mnt, int flags)
 {
 	struct path path;
 	int err = kern_path(mnt, 0, &path);
