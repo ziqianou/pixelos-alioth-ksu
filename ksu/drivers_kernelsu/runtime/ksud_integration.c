@@ -406,6 +406,7 @@ static ssize_t (*orig_read)(struct file *, char __user *, size_t, loff_t *);
 static ssize_t (*orig_read_iter)(struct kiocb *, struct iov_iter *);
 static struct file_operations fops_proxy;
 static ssize_t ksu_rc_pos = 0;
+static bool ksu_rc_prepended = false;
 const size_t ksu_rc_len = sizeof(KERNEL_SU_RC) - 1;
 
 // https://cs.android.com/android/platform/superproject/main/+/main:system/core/init/parser.cpp;l=144;drc=61197364367c9e404c7da6900658f1b16c42d0da
@@ -417,122 +418,59 @@ static ssize_t read_proxy(struct file *file, char __user *buf, size_t count,
 				loff_t *pos)
 {
 	ssize_t ret = 0;
-	size_t append_count;
-#ifdef KSU_KPROBES_HOOK
-	// this runs in normal (non-atomic) read context, safe to open files
-	load_module_rc_once();
-#endif
-	if (ksu_rc_pos && ksu_rc_pos < ksu_rc_len)
-		goto append_ksu_rc;
-	if (ksu_rc_pos >= ksu_rc_len && module_rc_pos < (ssize_t)module_rc_len)
-		goto append_module_rc;
+	size_t ksu_count;
 
-	ret = orig_read(file, buf, count, pos);
-	if (ret != 0) {
+	if (!ksu_rc_prepended) {
+		if (ksu_rc_pos < (ssize_t)ksu_rc_len) {
+			ksu_count = ksu_rc_len - ksu_rc_pos;
+			if (ksu_count > count)
+				ksu_count = count;
+			if (copy_to_user(buf, KERNEL_SU_RC + ksu_rc_pos, ksu_count))
+				return -EFAULT;
+			ksu_rc_pos += ksu_count;
+			ret = ksu_count;
+			if (ksu_rc_pos < (ssize_t)ksu_rc_len || ret >= (ssize_t)count)
+				return ret;
+		}
+		ksu_rc_prepended = true;
+		if (ret < (ssize_t)count) {
+			ssize_t oret = orig_read(file, buf + ret, count - ret, pos);
+			if (oret > 0)
+				ret += oret;
+		}
 		return ret;
 	}
-	if (ksu_rc_pos >= ksu_rc_len && module_rc_pos >= (ssize_t)module_rc_len) {
-		return ret;
-	}
-	pr_info("read_proxy: orig read finished, start append rc\n");
-
-append_ksu_rc:
-	if (ksu_rc_pos < ksu_rc_len) {
-		append_count = ksu_rc_len - ksu_rc_pos;
-		if (append_count > count - ret)
-			append_count = count - ret;
-		// copy_to_user returns the number of not copied
-		if (copy_to_user(buf + ret, KERNEL_SU_RC + ksu_rc_pos, append_count)) {
-			pr_info("read_proxy: append error, totally appended %ld\n", ksu_rc_pos);
-			return ret;
-		}
-		pr_info("read_proxy: append %zu\n", append_count);
-
-		ksu_rc_pos += append_count;
-		if (ksu_rc_pos == ksu_rc_len) {
-			pr_info("read_proxy: append done\n");
-		}
-		ret += append_count;
-	}
-
-append_module_rc:
-	if (module_rc_pos < (ssize_t)module_rc_len && (size_t)ret < count) {
-		append_count = module_rc_len - module_rc_pos;
-		if (append_count > count - ret)
-			append_count = count - ret;
-		if (copy_to_user(buf + ret, module_rc_buf + module_rc_pos, append_count)) {
-			pr_info("read_proxy: module append error, totally appended %zd\n", module_rc_pos);
-			return ret;
-		}
-		pr_info("read_proxy: append module %zu\n", append_count);
-		module_rc_pos += append_count;
-		ret += append_count;
-		if (module_rc_pos == (ssize_t)module_rc_len) {
-			pr_info("read_proxy: module append done\n");
-			free_module_rc();
-		}
-	}
-
-	return ret;
+	return orig_read(file, buf, count, pos);
 }
 
 static ssize_t read_iter_proxy(struct kiocb *iocb, struct iov_iter *to)
 {
 	ssize_t ret = 0;
-	size_t append_count;
-#ifdef KSU_KPROBES_HOOK
-	// this runs in normal (non-atomic) read context, safe to open files
-	load_module_rc_once();
-#endif
-	if (ksu_rc_pos && ksu_rc_pos < ksu_rc_len)
-		goto append_ksu_rc;
-	if (ksu_rc_pos >= ksu_rc_len && module_rc_pos < (ssize_t)module_rc_len)
-		goto append_module_rc;
+	size_t ksu_count, remaining;
 
-	ret = orig_read_iter(iocb, to);
-	if (ret != 0) {
+	if (!ksu_rc_prepended) {
+		if (ksu_rc_pos < (ssize_t)ksu_rc_len) {
+			remaining = iov_iter_count(to);
+			ksu_count = ksu_rc_len - ksu_rc_pos;
+			if (ksu_count > remaining)
+				ksu_count = remaining;
+			ksu_count = copy_to_iter(KERNEL_SU_RC + ksu_rc_pos, ksu_count, to);
+			if (!ksu_count)
+				return -EFAULT;
+			ksu_rc_pos += ksu_count;
+			ret = ksu_count;
+			if (ksu_rc_pos < (ssize_t)ksu_rc_len || !iov_iter_count(to))
+				return ret;
+		}
+		ksu_rc_prepended = true;
+		if (iov_iter_count(to) > 0) {
+			ssize_t oret = orig_read_iter(iocb, to);
+			if (oret > 0)
+				ret += oret;
+		}
 		return ret;
 	}
-	if (ksu_rc_pos >= ksu_rc_len && module_rc_pos >= (ssize_t)module_rc_len) {
-		return ret;
-	}
-	pr_info("read_iter_proxy: orig read finished, start append rc\n");
-
-append_ksu_rc:
-	if (ksu_rc_pos < ksu_rc_len) {
-		// copy_to_iter returns the number of copied bytes
-		append_count =
-			copy_to_iter(KERNEL_SU_RC + ksu_rc_pos, ksu_rc_len - ksu_rc_pos, to);
-		if (!append_count) {
-			pr_info("read_iter_proxy: append error, totally appended %ld\n",
-				ksu_rc_pos);
-			return ret;
-		}
-		pr_info("read_iter_proxy: append %zu\n", append_count);
-
-		ksu_rc_pos += append_count;
-		if (ksu_rc_pos == ksu_rc_len) {
-			pr_info("read_iter_proxy: append done\n");
-		}
-		ret += append_count;
-	}
-
-append_module_rc:
-	if (module_rc_pos < (ssize_t)module_rc_len) {
-		append_count = copy_to_iter(module_rc_buf + module_rc_pos, module_rc_len - module_rc_pos, to);
-		if (!append_count) {
-			pr_info("read_iter_proxy: module append error, appended %zd\n", module_rc_pos);
-			return ret;
-		}
-		pr_info("read_iter_proxy: append module %zu\n", append_count);
-		module_rc_pos += append_count;
-		ret += append_count;
-		if (module_rc_pos == (ssize_t)module_rc_len) {
-			pr_info("read_iter_proxy: module append done\n");
-			free_module_rc();
-		}
-	}
-	return ret;
+	return orig_read_iter(iocb, to);
 }
 
 static bool check_init_path(char *dpath)
