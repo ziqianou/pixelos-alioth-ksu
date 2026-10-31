@@ -1,0 +1,22 @@
+The 4.19 lru_size accounting can transiently underflow under memory
+pressure.  The existing WARN_ONCE is a debug check and taints the kernel
+(TAINT_WARN), which shows up in /proc/sys/kernel/tainted and is picked up
+by integrity/detector apps.  Keep the log and the reset, but do not taint.
+
+--- a/mm/memcontrol.c
++++ b/mm/memcontrol.c
+@@ -1184,10 +1184,10 @@
+ 		*lru_size += nr_pages;
+ 
+ 	size = *lru_size;
+-	if (WARN_ONCE(size < 0,
+-		"%s(%p, %d, %d): lru_size %ld\n",
+-		__func__, lruvec, lru, nr_pages, size)) {
+-		VM_BUG_ON(1);
++	if (unlikely(size < 0)) {
++		/* lru accounting can race; log it without tainting the kernel. */
++		pr_warn_once("%s(%p, %d, %d): lru_size %ld\n",
++			__func__, lruvec, lru, nr_pages, size);
+ 		*lru_size = 0;
+ 	}
+ 

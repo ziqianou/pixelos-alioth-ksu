@@ -68,6 +68,8 @@ jobs:
           patch -p1 -d kernel < patches/ksu-newfstat-hook.patch
           # Android 17 native zygote needs CAP_CHECKPOINT_RESTORE (40).
           patch -p1 -d kernel < patches/cap-checkpoint-restore.patch
+          # Keep the 4.19 lru_size debug check from tainting the kernel.
+          patch -p1 -d kernel < patches/memcg-lru-size-warn.patch
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -106,6 +108,12 @@ jobs:
       - name: Build Image
         run: |
           cd kernel
+          # Match the stock PixelOS kernel's uname -v / Linux version banner.
+          # mkcompile_h uses KBUILD_BUILD_TIMESTAMP verbatim.
+          export KBUILD_BUILD_VERSION=1
+          export KBUILD_BUILD_USER=ci
+          export KBUILD_BUILD_HOST=PixelOS-CI
+          export KBUILD_BUILD_TIMESTAMP='Tue Sep 22 17:03:44 CEST 2026'
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC="ccache clang" CXX="ccache clang++" \
             HOSTCC="ccache gcc" HOSTCXX="ccache g++" \
