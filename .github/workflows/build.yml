@@ -6,7 +6,7 @@ on:
       rom_url:
         description: "PixelOS alioth ROM zip (must contain payload.bin)"
         required: true
-        default: "https://sourceforge.net/projects/pixelos-releases/files/seventeen/alioth/PixelOS_alioth-17.0-20260922-1500.zip/download"
+        default: "https://sourceforge.net/projects/pixelos-releases/files/seventeen/alioth/PixelOS_alioth-17.0-20261024-0345.zip/download"
       kernel_ref:
         description: "grill-glitch/kernel_xiaomi_sm8250 commit"
         required: true
@@ -113,7 +113,7 @@ jobs:
           export KBUILD_BUILD_VERSION=1
           export KBUILD_BUILD_USER=ci
           export KBUILD_BUILD_HOST=PixelOS-CI
-          export KBUILD_BUILD_TIMESTAMP='Tue Sep 22 17:03:44 CEST 2026'
+          export KBUILD_BUILD_TIMESTAMP='Sat Oct 24 05:49:15 CEST 2026'
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC="ccache clang" CXX="ccache clang++" \
             HOSTCC="ccache gcc" HOSTCXX="ccache g++" \
