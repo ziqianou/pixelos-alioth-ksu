@@ -66,6 +66,8 @@ jobs:
           # Android 17 libbase reads exactly fstat(2)'s st_size, so the
           # appended KSU init.rc is only seen if newfstat reports it.
           patch -p1 -d kernel < patches/ksu-newfstat-hook.patch
+          # Android 17 native zygote needs CAP_CHECKPOINT_RESTORE (40).
+          patch -p1 -d kernel < patches/cap-checkpoint-restore.patch
 
       - name: Restore ccache
         uses: actions/cache@v4
