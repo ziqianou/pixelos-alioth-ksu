@@ -22,6 +22,97 @@
 
 #include "sulog/event.h"
 
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs.h>
+#include <linux/susfs_def.h>
+
+/*
+ * SUSFS 2.x asks KernelSU for its command entry point through the reboot
+ * syscall: reboot(KSU_INSTALL_MAGIC1, SUSFS_MAGIC, cmd, arg).  The base
+ * kernel carries the SUSFS implementation, but nothing dispatched these
+ * commands, so every ksu_susfs/ksud susfs call failed with "operation not
+ * supported".  Route them to the SUSFS helpers, which copy the request and
+ * write their status back into the caller's struct.
+ */
+static void ksu_susfs_dispatch(unsigned int cmd, void __user **arg)
+{
+	switch (cmd) {
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	case CMD_SUSFS_ADD_SUS_PATH:
+		susfs_add_sus_path(arg);
+		break;
+	case CMD_SUSFS_ADD_SUS_PATH_LOOP:
+		susfs_add_sus_path_loop(arg);
+		break;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+	case CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS:
+		susfs_set_hide_sus_mnts_for_non_su_procs(arg);
+		break;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+	case CMD_SUSFS_ADD_SUS_KSTAT:
+	case CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY:
+		susfs_add_sus_kstat(arg);
+		break;
+	case CMD_SUSFS_UPDATE_SUS_KSTAT:
+		susfs_update_sus_kstat(arg);
+		break;
+#endif
+#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
+	case CMD_SUSFS_ADD_TRY_UMOUNT:
+		susfs_add_try_umount(arg);
+		break;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+	case CMD_SUSFS_SET_UNAME:
+		susfs_set_uname(arg);
+		break;
+#endif
+#ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
+	case CMD_SUSFS_ENABLE_LOG:
+		susfs_enable_log(arg);
+		break;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+	case CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG:
+		susfs_set_cmdline_or_bootconfig(arg);
+		break;
+#endif
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+	case CMD_SUSFS_ADD_OPEN_REDIRECT:
+		susfs_add_open_redirect(arg);
+		break;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+	case CMD_SUSFS_ADD_SUS_MAP:
+		susfs_add_sus_map(arg);
+		break;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MEMFD
+	case CMD_SUSFS_ADD_SUS_MEMFD:
+		susfs_add_sus_memfd(arg);
+		break;
+#endif
+	case CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING:
+		susfs_set_avc_log_spoofing(arg);
+		break;
+	case CMD_SUSFS_SHOW_VERSION:
+		susfs_show_version(arg);
+		break;
+	case CMD_SUSFS_SHOW_ENABLED_FEATURES:
+		susfs_get_enabled_features(arg);
+		break;
+	case CMD_SUSFS_SHOW_VARIANT:
+		susfs_show_variant(arg);
+		break;
+	default:
+		pr_warn("susfs: unsupported cmd 0x%x\n", cmd);
+		break;
+	}
+}
+#endif
+
 uint32_t ksuver_override = 0;
 
 #define KSU_DRIVER_PERMISSION_SU_SESSION (1UL << 0)
@@ -158,6 +249,17 @@ int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,
 		}
 		return 0;
 	}
+
+#ifdef CONFIG_KSU_SUSFS
+	if (magic2 == SUSFS_MAGIC) {
+		/* same privilege gate as the other configuration commands */
+		if (current_uid().val != 0)
+			return 0;
+
+		ksu_susfs_dispatch(cmd, arg);
+		return 0;
+	}
+#endif
 
 	// extensions 
 	u64 reply = (u64)*arg;
