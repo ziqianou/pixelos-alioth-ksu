@@ -7,10 +7,10 @@ on:
         description: "PixelOS alioth ROM zip (must contain payload.bin)"
         required: true
         default: "https://sourceforge.net/projects/pixelos-releases/files/seventeen/alioth/PixelOS_alioth-17.0-20261024-0345.zip/download"
-      kernel_ref:
-        description: "grill-glitch/kernel_xiaomi_sm8250 commit"
+      kernel_src_url:
+        description: "Kernel source tarball (top-level dir is stripped)"
         required: true
-        default: "d736f87b1b7e07d1be1f73e94a2b208b6265274a"
+        default: "https://github.com/ziqianou/pixelos-alioth-ksu/releases/download/kernel-base-v1/kernel_xiaomi_sm8250-grill-20261030.tar.gz"
       jobs:
         description: "make -j value"
         required: false
@@ -47,13 +47,13 @@ jobs:
             sudo apt-get install -y gcc-arm-linux-gnueabihf || true
           echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
 
-      - name: Clone kernel source
+      - name: Fetch kernel source
         run: |
-          git init kernel
-          git -C kernel remote add origin https://github.com/grill-glitch/kernel_xiaomi_sm8250.git
-          git -C kernel fetch --depth 1 origin "${{ inputs.kernel_ref }}"
-          git -C kernel checkout FETCH_HEAD
-          git -C kernel rev-parse HEAD
+          mkdir -p kernel
+          curl -L --retry 3 --retry-delay 5 --connect-timeout 30 \
+            -o kernel-src.tar.gz "${{ inputs.kernel_src_url }}"
+          tar xzf kernel-src.tar.gz -C kernel --strip-components=1
+          test -f kernel/Makefile
 
       - name: Add KernelSU source
         run: |
@@ -70,14 +70,15 @@ jobs:
           patch -p1 -d kernel < patches/cap-checkpoint-restore.patch
           # Keep the 4.19 lru_size debug check from tainting the kernel.
           patch -p1 -d kernel < patches/memcg-lru-size-warn.patch
+          # avc_spoof only works when slow_avc_audit feeds tsid to KSU.
+          patch -p1 -d kernel < patches/ksu-avc-spoof-hook.patch
 
       - name: Restore ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-ccache-${{ inputs.kernel_ref }}-${{ hashFiles('patches/**','config/**','ksu/**') }}
+          key: ${{ runner.os }}-ccache-${{ hashFiles('patches/**','config/**','ksu/**') }}
           restore-keys: |
-            ${{ runner.os }}-ccache-${{ inputs.kernel_ref }}-
             ${{ runner.os }}-ccache-
 
       - name: Configure ccache
@@ -128,7 +129,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-ccache-${{ inputs.kernel_ref }}-${{ github.run_id }}
+          key: ${{ runner.os }}-ccache-${{ hashFiles('patches/**','config/**','ksu/**') }}-${{ github.run_id }}
 
       - name: Upload kernel Image (early)
         uses: actions/upload-artifact@v4
@@ -159,8 +160,8 @@ jobs:
 
       - name: Fetch KernelSU-Next manager
         run: |
-          curl -L --retry 3 -o KernelSU_Next_v3.4.0_33294-release.apk \
-            https://github.com/KernelSU-Next/KernelSU-Next/releases/download/v3.4.0/KernelSU_Next_v3.4.0_33294-release.apk
+          curl -L --retry 3 -o KernelSU_Next_v3.4.2_33355-release.apk \
+            https://github.com/KernelSU-Next/KernelSU-Next/releases/download/v3.4.2/KernelSU_Next_v3.4.2_33355-release.apk
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -170,7 +171,7 @@ jobs:
           path: |
             boot-ksu.img
             SHA256SUMS
-            KernelSU_Next_v3.4.0_33294-release.apk
+            KernelSU_Next_v3.4.2_33355-release.apk
             kernel/out/arch/arm64/boot/Image
             kernel/out/System.map
             kernel/out/.config
