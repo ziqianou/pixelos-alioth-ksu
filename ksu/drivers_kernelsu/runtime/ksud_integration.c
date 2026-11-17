@@ -272,6 +272,25 @@ static void ksu_initialize_selinux_tw_func(struct callback_head *cb)
 	apply_kernelsu_rules();
 	ksu_feature_apply_forced();
 	cache_sid();
+#ifdef CONFIG_KSU_SUSFS
+	/*
+	 * SUSFS keeps its own copies of the init/zygote/priv_app/ksu SIDs and
+	 * uses them for its domain checks.  They have to be resolved once the
+	 * policy is loaded, otherwise susfs_is_current_ksu_domain() is always
+	 * false and the sdcard monitor exits immediately.
+	 */
+	{
+		extern void susfs_set_init_sid(void);
+		extern void susfs_set_zygote_sid(void);
+		extern void susfs_set_ksu_sid(void);
+		extern void susfs_set_priv_app_sid(void);
+
+		susfs_set_init_sid();
+		susfs_set_zygote_sid();
+		susfs_set_ksu_sid();
+		susfs_set_priv_app_sid();
+	}
+#endif
 	setup_ksu_cred();
 	kfree(cb);
 }
