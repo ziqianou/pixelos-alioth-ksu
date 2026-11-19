@@ -21,11 +21,15 @@ PixelOS 17 的内核源码仓库 `gitlab.com/PixelOS-alioth/kernel_xiaomi_alioth
 - KernelSU 源码：本仓库 `ksu/drivers_kernelsu/`，同步到 **KernelSU-Next v3.4.2-legacy**
   （含 v3.4.0 审计修复），并保留本机定制（见下）。
 
-为了不破坏 `/vendor/lib/modules`，构建时把 localversion 固定成设备当前内核的：
+为了不破坏 `/vendor/lib/modules`，构建时把 UTS 版本串对齐 stock：
 
 ```
-4.19.325-cip135-st19-perf-g2fbe35cee4e6
+4.19.325-cip136-st20-perf-gf914d0b24613
+#1 SMP PREEMPT Thu Nov 12 09:32:12 CET 2026
 ```
+
+> 20261112 ROM 的 stock 配置已用 `scripts/extract-ikconfig` 从其 `boot.img` 提取，
+> 与 `config/device.config` 完全一致；因此只更新了 UTS 字符串，源码快照本身不变。
 
 CI 中关闭 LTO/CFI（runner 磁盘/内存有限）；KSU/SUSFS 不依赖它们，vermagic 也不受影响。
 
@@ -81,7 +85,7 @@ Workflow 会：
 2. 把 `ksu/drivers_kernelsu` 复制到 `kernel/drivers/kernelsu`
 3. 应用上面四个 kernel patch
 4. 用 stock PixelOS 内核的 UTS 版本字符串构建：
-   `#1 SMP PREEMPT Sat Oct 24 05:49:15 CEST 2026`，`ci@PixelOS-CI`，
+   `#1 SMP PREEMPT Thu Nov 12 09:32:12 CET 2026`，`ci@PixelOS-CI`，
    `KBUILD_BUILD_VERSION=1`
 5. 拉取 stock `boot.img`，把 `Image` 重打包成 `boot-ksu.img`
 6. 下载 KernelSU-Next v3.4.2 manager（`KernelSU_Next_v3.4.2_33355-release.apk`）
@@ -91,7 +95,7 @@ Workflow 会：
 仓库：<https://github.com/ziqianou/pixelos-alioth-ksu>
 
 打开 **Actions → Build PixelOS alioth KernelSU kernel → Run workflow**
-- `rom_url`：默认 `PixelOS_alioth-17.0-20261024-0345.zip`
+- `rom_url`：默认 `PixelOS_alioth-17.0-20261112-0826.zip`（download.pixelos.net）
 - `kernel_src_url`：默认 `kernel-base-v1` 的源码 tarball
 - `jobs`：默认 4
 
@@ -101,32 +105,42 @@ Workflow 会：
 > 更新 manager 后先打开一次 app（或确认 `/data/adb/ksud` 已是新版本）再重启，
 > 否则该次开机的 ksud 仍是旧 ABI，post-fs-data/模块脚本会被跳过一次。
 
-## 刷入 / 回滚（当前槽 `_a`，PixelOS 20261024）
+## 刷入 / 回滚（当前槽 `_b`，PixelOS 20261112）
 
 本机整合后的路径（仓库在 `repo/`，产物在 `../artifacts/`）：
 
 ```sh
-# 当前已刷：PixelOS 20261024 + KSU 3.4.2 + SUSFS 接线（slot a）
+# 当前已刷：PixelOS 20261112 + KSU 3.4.2 + SUSFS 接线（slot b）
+fastboot --set-active=b
+fastboot flash boot_b ../artifacts/20261112/boot-ksu.img
+fastboot reboot
+
+# 回滚到 20261024（slot a）
+fastboot --set-active=a
 fastboot flash boot_a ../artifacts/20261118b/boot-ksu.img
 fastboot reboot
 
-# 上一个 KSU 3.4.2 boot（仅驱动同步，SUSFS 未接线）
+# 更早的 KSU 3.4.2 / 3.4.0
 fastboot flash boot_a ../artifacts/20261118/boot-ksu.img
-
-# 回滚到 KSU 3.4.0 时代
 fastboot flash boot_a ../artifacts/20261024/boot-ksu.img
 
-# 回滚到旧 ROM (20260922) 的 KSU boot（slot b；数据可能不兼容，谨慎）
+# 旧 ROM (20260922) 的 KSU boot（slot b 历史备份；已被 20261112 覆盖）
 fastboot flash boot_b ../artifacts/uname/pixelos-alioth-ksu-14/boot-ksu.img
-fastboot --set-active=b
-fastboot reboot
 
 # stock/Magisk boot_b 备份（20260922 时代）
 fastboot flash boot_b ../artifacts/main/boot_b.backup.img
-
-# 临时启动测试（当前 slot a）
-fastboot boot ../artifacts/20261118b/boot-ksu.img
 ```
+
+ROM 更新方式（本次 20261024 → 20261112 的 a→b）：
+
+```sh
+adb reboot sideload
+adb sideload ../downloads/alioth/20261112/PixelOS_alioth-17.0-20261112-0826.zip
+# 完成后进 bootloader：切到 b、刷 boot_b、重启
+```
+
+> USB 传输不稳时，也可以在已 root 的系统里用 `update_engine_client` 把同一份
+> `payload.bin` 写到 inactive slot，再 fastboot 刷 boot。
 
 首次开机后安装 `KernelSU_Next_v3.4.2_33355-release.apk`，授予 root，再按需安装
 Zygisk Next、LSPosed、SUSFS 模块等。
@@ -140,8 +154,8 @@ Magic Mount，需要在管理器里安装 `meta-overlayfs` 之类的 metamodule�
 本仓库所在的工作区还包含（不随 git 推送）：
 
 ```
-../artifacts/          # 各次构建产物；20261118b=当前(SUSFS 接线), 20261118=驱动同步,
-                       # 20261024=KSU 3.4.0, uname=旧 ROM(slot b), main=回滚备份
+../artifacts/          # 各次构建产物；20261112=当前(20261112 ROM), 20261118b=20261024 SUSFS 接线,
+                       # 20261118=驱动同步, 20261024=KSU 3.4.0, uname=旧 ROM, main=回滚备份
 ../cache/alioth-work/  # 本地内核源码/clang/工具/ROM dump
 ../downloads/          # ROM、boot、vbmeta、LSPosed、KernelSU APK 等
 ```
@@ -150,19 +164,25 @@ Magic Mount，需要在管理器里安装 `meta-overlayfs` 之类的 metamodule�
 
 ## 设备侧状态 / 已知限制
 
-- 当前 ROM：PixelOS 20261024（build date Sat Oct 24 05:42:54 CEST 2026，incremental 1792813374，security patch 2026-10-01），slot a
-- 当前 boot：`../artifacts/20261118b/boot-ksu.img`（SHA256 `80c5c4f4…ecd2d3`）
+- 当前 ROM：PixelOS 20261112，**slot b**；system 构建时间 Thu Nov 12 09:22:50 CET 2026，
+  incremental 1794471770，安全补丁 2026-11-01
+  （运行时 `ro.build.*` 可能被认证属性模块伪装，真实值看 `ro.system.build.*` 或 `/system/build.prop`）
+- 当前 boot：`../artifacts/20261112/boot-ksu.img`（SHA256 `478123ea…de1e9f32`）
+- 内核：`4.19.325-cip136-st20-perf-gf914d0b24613`，`uname -v` 与 stock 一致
 - KSU built-in v3.4.2（33355），ksud/manager v3.4.2（33355，uapi 5）；Zygisk Next 1.5.2；LSPosed v2.2.1-log 7944
 - metamodule：`meta-overlayfs v1.3.1`；OpenEUICC 以 priv-app 安装，`SYSTEM|PRIVILEGED`，四个特权权限 granted
 - SUSFS：内核 v2.3.0，命令入口/初始化/SID/sdcard 监控均已接通；`set_uname`、`add_sus_path`、
   `hide_sus_mnts_for_non_su_procs`、`enable_log`、`show version/features` 实测可用
-- `cap_last_cap=40`；`uname -v` 已对齐 stock（Oct 24）；`tainted=4`（仅 `S`）
+- `cap_last_cap=40`；`tainted=4`（仅 `S`）
 - avc_spoof 已真实生效（之前缺 `slow_avc_audit` hook，等于没开）
 - LSPosed 首次刷内核后开机可能遇到 system_server 未连接（`lspctl status` 显示
   `System server: not connected`，日志 `failed to prepare for SystemServer`），
   是启动竞态；再重启一次即可，之后模块正常注入
-- 音频：20261024 上 AudioFlinger underruns/overruns 空闲计数 0；实际播放需再确认
+- 音频：20261112 上 AudioFlinger underruns/overruns 空闲计数待复测
 - `reqable-magisk`、`TA_enhanced` 当前 **disabled**；`Automatic_brick_rescue` 是救砖模块
+- 厂商模块 `rmnet_perf` / `rmnet_shs` / `gspca_main` 仍无法加载：
+  `disagrees about version of symbol module_layout`（`CONFIG_MODVERSIONS` 的 CRC 与
+  私有 stock 内核不一致）。三者都不是开机必需，本次开机也没有触发加载
 - `untrusted_app` 读取 `/proc/version`、`/proc/sys/kernel/osrelease` 的 SELinux 规则
   在设备的 `/data/adb/modules/susfs4ksu/sepolicy.rule`（不在仓库）
 - SUSFS 底座 Kconfig 没有新版 `AUTO_ADD_*` 选项，WebUI 中对应开关不会显示；
@@ -177,7 +197,7 @@ Magic Mount，需要在管理器里安装 `meta-overlayfs` 之类的 metamodule�
 
 - 用新 ROM 的 zip URL 重新跑一次 workflow；
 - OTA 装到 inactive slot 后先别重启，把新的 `boot-ksu.img` 刷到**重启后将使用的 slot**；
-  或等 OTA 完成后再进 fastboot 刷当前 slot（本次为 `boot_a`，注意 slot 可能变化）。
+  或等 OTA 完成后再进 fastboot 刷当前 slot（本次为 `boot_b`，注意 slot 可能变化）。
 
 > 内置 KSU 无法使用 KernelSU 管理器的 "install to inactive slot" 功能。
 
@@ -185,8 +205,10 @@ Magic Mount，需要在管理器里安装 `meta-overlayfs` 之类的 metamodule�
 
 - 内核源码是 grill 树的固定快照（非 PixelOS 私有源码）。vermagic 已精确对齐，
   但 `/vendor/lib/modules` 的 3 个模块（`rmnet_perf`、`rmnet_shs`、`gspca_main`）的
-  符号 CRC 仍可能不匹配而加载失败。它们不是开机必需。
+  符号 CRC 不匹配，加载失败；它们不是开机必需。
+- 源码快照本身未随 20261112 更新（其 stock 配置与 `config/device.config` 一致，
+  只对齐了 UTS 字符串）。若 ROM 引入内核侧行为变化，可能需要替换源码快照。
 - LTO/CFI 关闭，与原厂内核不同，只影响安全加固。
-- 已在真机 alioth / slot a（PixelOS 20261024）验证开机、KSU post-fs-data、
-  metamodule 挂载、OpenEUICC、Zygisk/LSPosed、SUSFS 命令；旧 ROM 20260922 保留在 slot b。
-- 若 PixelOS 后续把内核升到 `cip136/st20`，需要重新生成源码快照并核对 vermagic。
+- 已在真机 alioth / slot b（PixelOS 20261112）验证开机、KSU post-fs-data、
+  metamodule 挂载、OpenEUICC、SUSFS 命令；slot a 保留 20261024 作回滚。
+- 若 PixelOS 后续把内核升到 `cip137/st21`，需要重新生成源码快照并核对 vermagic。
