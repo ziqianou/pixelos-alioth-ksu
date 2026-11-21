@@ -196,6 +196,8 @@ jobs:
         with:
           name: pixelos-alioth-ksu-${{ github.run_number }}
           if-no-files-found: error
+          # .config is a dotfile: upload-artifact skips hidden files otherwise.
+          include-hidden-files: true
           path: |
             boot-ksu.img
             SHA256SUMS
