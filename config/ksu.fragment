@@ -4,7 +4,7 @@ CONFIG_KSU_MANUAL_HOOK=y
 CONFIG_KSU_SUSFS=y
 
 # Match the running PixelOS 17 kernel vermagic exactly, so /vendor .ko modules load.
-# The workflow overwrites localversion-cip/-st with -cip135 / -st19.
+# The workflow overwrites localversion-cip/-st with -cip136 / -st20.
 CONFIG_LOCALVERSION="-perf-gf914d0b24613"
 # CONFIG_LOCALVERSION_AUTO is not set
 
@@ -14,3 +14,7 @@ CONFIG_LTO_NONE=y
 # CONFIG_LTO_CLANG is not set
 # CONFIG_CFI_CLANG is not set
 # CONFIG_CFI_CLANG_SHADOW is not set
+
+# clang 18 (CI) emits a larger LZ4 stack frame than the stock clang 22 build;
+# disable -Wframe-larger-than so -Werror does not break lib/lz4.
+CONFIG_FRAME_WARN=0

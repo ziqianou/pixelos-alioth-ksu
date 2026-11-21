@@ -68,6 +68,10 @@ jobs:
 
       - name: Apply kernel-side KSU hooks
         run: |
+          # Full KSU-Next/SUSFS manual-hook integration. The stock tree ships
+          # none of it: this adds fs/susfs.c, include/linux/susfs*.h and the
+          # ksu_handle_* hooks (execve/open/stat/faccessat/reboot/...).
+          patch -p1 -d kernel < patches/kernelsu-susfs.diff
           # Android 17 libbase reads exactly fstat(2)'s st_size, so the
           # appended KSU init.rc is only seen if newfstat reports it.
           patch -p1 -d kernel < patches/ksu-newfstat-hook.patch
