@@ -10,7 +10,9 @@ on:
       kernel_src_url:
         description: "Kernel source tarball (top-level dir is stripped)"
         required: true
-        default: "https://github.com/ziqianou/pixelos-alioth-ksu/releases/download/kernel-base-v1/kernel_xiaomi_sm8250-grill-20261030.tar.gz"
+        # Exact stock PixelOS-Devices source for the 20261112 ROM (cip136/st20).
+        # Public mirror of the kernel that ships in PixelOS_alioth-17.0-20261112.
+        default: "https://github.com/PixelOS-Devices/android_kernel_xiaomi_sm8250/archive/f914d0b2461384fb80680ca7ebc8ec54df0a28a1.tar.gz"
       jobs:
         description: "make -j value"
         required: false
@@ -58,16 +60,19 @@ jobs:
       - name: Add KernelSU source
         run: |
           cp -r ksu/drivers_kernelsu kernel/drivers/kernelsu
-          grep -q 'obj-$(CONFIG_KSU) += kernelsu/' kernel/drivers/Makefile
-          grep -q 'drivers/kernelsu/Kconfig' kernel/drivers/Kconfig
+          # The stock tree does not ship the KSU hooks; add them if absent.
+          grep -q 'obj-$(CONFIG_KSU) += kernelsu/' kernel/drivers/Makefile || \
+            echo 'obj-$(CONFIG_KSU) += kernelsu/' >> kernel/drivers/Makefile
+          grep -q 'drivers/kernelsu/Kconfig' kernel/drivers/Kconfig || \
+            echo 'source "drivers/kernelsu/Kconfig"' >> kernel/drivers/Kconfig
 
       - name: Apply kernel-side KSU hooks
         run: |
           # Android 17 libbase reads exactly fstat(2)'s st_size, so the
           # appended KSU init.rc is only seen if newfstat reports it.
           patch -p1 -d kernel < patches/ksu-newfstat-hook.patch
-          # Android 17 native zygote needs CAP_CHECKPOINT_RESTORE (40).
-          patch -p1 -d kernel < patches/cap-checkpoint-restore.patch
+          # The stock 20261112 source already carries CAP_CHECKPOINT_RESTORE (40)
+          # and the matching SELinux classmap entry, so caps are not patched here.
           # Keep the 4.19 lru_size debug check from tainting the kernel.
           patch -p1 -d kernel < patches/memcg-lru-size-warn.patch
           # avc_spoof only works when slow_avc_audit feeds tsid to KSU.

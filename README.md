@@ -11,13 +11,13 @@
 
 ## 内核来源
 
-PixelOS 17 的内核源码仓库 `gitlab.com/PixelOS-alioth/kernel_xiaomi_alioth` 是**私有**的，
-公开 CI 拉不到。因此本仓库使用：
-
-- 底座：`grill-glitch/kernel_xiaomi_sm8250` 在 `d736f87b1b7e07d1be1f73e94a2b208b6265274a`
-  的**固定快照**（4.19.325 / Android 17 / alioth，已带 KSU-Next/SUSFS 手动 hook 接入）。
-  该上游仓库现已不可访问，快照以 release 资产
-  `kernel-base-v1/kernel_xiaomi_sm8250-grill-20261030.tar.gz` 提供，workflow 直接下载。
+底座：`github.com/PixelOS-Devices/android_kernel_xiaomi_sm8250`（公开），固定到
+20261112 ROM 所用 stock 内核的提交
+`f914d0b2461384fb80680ca7ebc8ec54df0a28a1`（4.19.325 / cip136 / st20，含
+`techpack/audio`）。它与 ROM 的 ADSP 固件/音频 ABI 匹配。旧的
+`grill-glitch@d736f87` 快照只对齐了 UTS 串，A2DP offload 会让 ADSP 固件
+`err_qdi.c:1038 EX:audio_process` 崩溃（蓝牙无声），已弃用。workflow 直接下载该
+提交的 GitHub archive。
 - KernelSU 源码：本仓库 `ksu/drivers_kernelsu/`，同步到 **KernelSU-Next v3.4.2-legacy**
   （含 v3.4.0 审计修复），并保留本机定制（见下）。
 
@@ -38,7 +38,7 @@ CI 中关闭 LTO/CFI（runner 磁盘/内存有限）；KSU/SUSFS 不依赖它们
 ```
 .github/workflows/build.yml              # 编译 + 重打包
 patches/ksu-newfstat-hook.patch          # fstat(2) 报告追加的 KSU init.rc 长度
-patches/cap-checkpoint-restore.patch     # CAP_LAST_CAP 补到 40 + SELinux cap2 classmap
+patches/cap-checkpoint-restore.patch     # 旧底座用；stock 源码已含，workflow 不再应用
 patches/memcg-lru-size-warn.patch        # memcg lru_size WARN 改为 pr_warn，避免 taint
 patches/ksu-avc-spoof-hook.patch         # slow_avc_audit 调用 KSU，avc_spoof 才生效
 patches/kernelsu-susfs.diff              # 历史参考，当前 workflow 不应用
@@ -53,10 +53,9 @@ ksu/drivers_kernelsu/                    # KernelSU-Next v3.4.2-legacy 源码
    Android 17 libbase 按 `fstat(2)` 的 `st_size` 精确读取，不再读到 EOF。KSU 的 init.rc
    是追加在 EOF 的，所以给 `newfstat` 加上 `ksu_rc_len + module_rc_len`。
 
-2. **`cap-checkpoint-restore.patch`**
-   Android 17 native zygote（`/system/bin/zygote_next`）按完整 cap 列表 drop bounding
-   set；补 `CAP_CHECKPOINT_RESTORE(40)`，并把 SELinux cap2 classmap 按
-   `plat_sepolicy.cil` 的顺序补上 `checkpoint_restore`。
+2. **`cap-checkpoint-restore.patch`**（当前不再应用）
+   stock 20261112 源码已自带 `CAP_CHECKPOINT_RESTORE(40)` 和 classmap
+   `checkpoint_restore`，无需再打；保留文件供旧底座参考。
 
 3. **`memcg-lru-size-warn.patch`**
    4.19 的 `mem_cgroup_update_lru_size()` 在内存压力下会触发 `WARN_ONCE`，给内核打上
@@ -190,7 +189,7 @@ Magic Mount，需要在管理器里安装 `meta-overlayfs` 之类的 metamodule�
 - LSPosed 首次刷内核后开机可能遇到 system_server 未连接（`lspctl status` 显示
   `System server: not connected`，日志 `failed to prepare for SystemServer`），
   是启动竞态；再重启一次即可，之后模块正常注入
-- 音频：20261112 上 AudioFlinger underruns/overruns 空闲计数待复测
+- 音频：grill 快照上 A2DP offload 会让 ADSP 固件 fatal（蓝牙无声）；已切到 stock 源码，待复测
 - `reqable-magisk`、`TA_enhanced` 当前 **disabled**；`Automatic_brick_rescue` 是救砖模块
 - 厂商模块 `rmnet_perf` / `rmnet_shs` / `gspca_main` 仍无法加载：
   `disagrees about version of symbol module_layout`（`CONFIG_MODVERSIONS` 的 CRC 与
@@ -215,11 +214,11 @@ Magic Mount，需要在管理器里安装 `meta-overlayfs` 之类的 metamodule�
 
 ## 已知风险
 
-- 内核源码是 grill 树的固定快照（非 PixelOS 私有源码）。vermagic 已精确对齐，
-  但 `/vendor/lib/modules` 的 3 个模块（`rmnet_perf`、`rmnet_shs`、`gspca_main`）的
-  符号 CRC 不匹配，加载失败；它们不是开机必需。
-- 源码快照本身未随 20261112 更新（其 stock 配置与 `config/device.config` 一致，
-  只对齐了 UTS 字符串）。若 ROM 引入内核侧行为变化，可能需要替换源码快照。
+- 内核源码现为 PixelOS-Devices 的 stock 提交 `f914d0b`，vermagic/符号 CRC 与
+  ROM 一致，`/vendor/lib/modules` 的 `rmnet_perf`/`rmnet_shs`/`gspca_main`
+  预期可正常加载（待本次构建验证）。
+- 源码现直接使用 ROM 对应的 stock 提交 `f914d0b`；后续 OTA 需同步换成新 ROM 的
+  stock 提交（GitHub 上按 `PixelOS-Devices` 的提交取 archive）。
 - LTO/CFI 关闭，与原厂内核不同，只影响安全加固。
 - 已在真机 alioth / slot b（PixelOS 20261112）验证开机、KSU post-fs-data、
   metamodule 挂载、OpenEUICC、SUSFS 命令；slot a 保留 20261024 作回滚。
