@@ -227,13 +227,23 @@ Magic Mount，需要在管理器里安装 `meta-overlayfs` 之类的 metamodule�
   实测不影响开机与数据网络，只影响网络性能模块和 UVC 摄像头驱动。
 - 源码现直接使用 ROM 对应的 stock 提交 `f914d0b`；后续 OTA 需同步换成新 ROM 的
   stock 提交（GitHub 上按 `PixelOS-Devices` 的提交取 archive）。
-- LTO/CFI/SHADOW_CALL_STACK 与 stock 一致；但 CI runner 只有 4 核，LTO 链接阶段
-  耗时和内存占用明显更高（预计 60–100 分钟），若 OOM 需回退到 `CONFIG_LTO_NONE`。
-- 已在真机 alioth / slot b（PixelOS 20261112）验证开机、KSU post-fs-data、
-  metamodule 挂载、OpenEUICC、SUSFS 命令；slot a 保留 20261024 作回滚。
+- LTO/CFI/SHADOW_CALL_STACK 与 stock 一致，实测可正常开机：`/proc/config.gz` 里三项
+  均为 `=y`，dmesg 可见 `cfi_jt` 符号。构建成本也比预期低——`Build Image` 约 14 分钟
+  （ccache 命中约 45%），整个 workflow 约 24 分钟；换环境若 OOM，回退方案是
+  `CONFIG_LTO_NONE=y`。
+- 已在真机 alioth / slot b（PixelOS 20261112）验证：LTO+CFI 内核开机约 28 秒、
+  KSU 3.4.2 root、13 个模块加载、Zygisk Next 注入 LSPosed、SUSFS 命令；
+  slot a 保留 20261024 作回滚。
 - 若 PixelOS 后续把内核升到 `cip137/st21`，需要重新生成源码快照并核对 vermagic。
 
 ## 刷机与救砖备忘（2026-11-22 实测）
+
+### 事故链速查
+
+`Automatic_brick_rescue` 被触发 → `chmod 000` 掉 `post-fs-data.d`/`service.d`（Zygisk 失效）
+\+ 给所有模块 `touch disable` → 启动计数 ≥4 后每次开机无条件 `reboot` → 连续启动失败
+把 `slot-retry-count:b` 耗尽、`b` 变 `unbootable` → 自动切到 **旧系统的 `a` 槽** →
+旧系统配不上新 `/data`，继续无限重启。**内核本身始终是好的。**
 
 ### `fastboot boot` 在这台机器上是空操作
 
@@ -267,17 +277,46 @@ fastboot reboot
   reboot**。
 
 所以只要有一次启动没在 3 分钟内完成开机动画，它就会把所有模块打上 `disable` 并主动
-重启，计数到 4 之后变成无限重启。排查内核问题时建议先 `touch
-/data/adb/modules/Automatic_brick_rescue/disable` 并复位
-`Number_of_starts.log`。
+重启，计数到 4 之后变成无限重启。它还会把 `post-fs-data.d` / `service.d` 里的启动脚本
+`chmod 000`，从而顺带废掉 Zygisk（见下一节）。
 
-### LTO/CFI 内核与 Zygisk Next 冲突
+排查内核问题时建议先禁用该模块并复位计数，事后**直接卸载**它：
 
-LTO+CFI 内核（clang 20.0.0，`CONFIG_LTO_CLANG/CFI_CLANG/SHADOW_CALL_STACK=y`，
-可从 `/proc/config.gz` 确认）本身可以正常开机、KSU 正常、dmesg 无 CFI 失败；但
-Zygisk Next 注入 zygote 失败，`/data/adb/zygisksu/.abort_msg` 记录
-`❌ Last injection failed!` / `❌ Module files corrupted`，随后自禁用，系统中没有
-`zn-*` 进程，LSPosed 也随之失效。注入失败还会连带把 zygote 拖进重启循环。
+```sh
+su -c 'touch /data/adb/modules/Automatic_brick_rescue/disable'   # 临时禁用
+su -c 'echo 0 > /data/adb/modules/Automatic_brick_rescue/Number_of_starts.log'
+```
 
-非 LTO 内核（`artifacts/20261024` 那套 clang 18 构建）上 Zygisk Next 正常（有
-`zn-nsdaemon-zygote` 进程）。需要 LSPosed 时优先用非 LTO 内核。
+### Zygisk Next 注入失败：先查脚本权限，不要怀疑内核
+
+现象：`/data/adb/zygisksu/.abort_msg` 出现 `❌ Last injection failed!` 或
+`❌ Module files corrupted`，模块自己写 `disable` 自禁用，系统里没有 `zn-*` 进程，
+LSPosed 失效；`znctl status` 报 `failed to connect to server`（说明 zygiskd 没起来）。
+
+真因（本次实测）：救砖模块执行过的
+`chmod 000 /data/adb/post-fs-data.d/* /data/adb/service.d/*` 把
+`00-zygisk.sh`（内容为 `setsid ./bin/zygiskd daemon`）也设成了不可读 → 守护进程从未
+启动 → 注入必然失败。同理 `hide_leaks.sh`、`pi_props.sh`、`adb-guard.sh`、
+`battery_unlock.sh` 也一起失效，只是没人注意。
+
+**与 LTO/CFI 无关**：修好权限后，同一套 LTO+CFI 内核（clang 20.0.0）上
+Zygisk Next 1.5.3 正常注入，`module.prop` 显示
+`[Root: ✅KernelSU (33355), UM, ZL, 1 service(s) injected]`，进程里有
+`zn-nsdaemon-zygote`、`zn-nsdaemon-zygote_secondary`、`zn-zygisk-companion64`。
+
+修复：
+
+```sh
+su -c 'chmod 755 /data/adb/post-fs-data.d/*.sh /data/adb/service.d/*.sh'
+su -c 'mv /data/adb/modules/zygisksu/disable /data/local/tmp/zygisksu.disable.off'
+su -c 'mkdir -p /data/local/tmp/mod-backup && \
+       mv /data/adb/modules/*/disable.off /data/local/tmp/mod-backup/ 2>/dev/null'  # 清残留
+reboot
+```
+
+已知残留问题：Zygisk Next 仍会**偶发**在开机时自禁用，同一内核下一次开机又正常，报错
+在 `Last injection failed!` / `Module files corrupted` 之间跳变。用官方
+`Zygisk-Next-1.5.3-880-*.zip` 走 `ksud module install` 干净重装也无效，怀疑与
+`meta-overlayfs`（metamodule）/ `susfs4ksu` 的挂载时序或可见性有关；需要稳定复现时先
+把这两个模块关掉再测。日常恢复：KSU 管理器里把 Zygisk Next 关一次再开，或挪走
+`disable` 后重启。
