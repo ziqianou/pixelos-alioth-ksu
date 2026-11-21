@@ -59,12 +59,9 @@ jobs:
 
       - name: Add KernelSU source
         run: |
+          # kernelsu-susfs.diff adds the drivers/{Kconfig,Makefile} entries, so
+          # only drop the current KernelSU-Next source in here.
           cp -r ksu/drivers_kernelsu kernel/drivers/kernelsu
-          # The stock tree does not ship the KSU hooks; add them if absent.
-          grep -q 'obj-$(CONFIG_KSU) += kernelsu/' kernel/drivers/Makefile || \
-            echo 'obj-$(CONFIG_KSU) += kernelsu/' >> kernel/drivers/Makefile
-          grep -q 'drivers/kernelsu/Kconfig' kernel/drivers/Kconfig || \
-            echo 'source "drivers/kernelsu/Kconfig"' >> kernel/drivers/Kconfig
 
       - name: Apply kernel-side KSU hooks
         run: |
