@@ -220,9 +220,11 @@ Magic Mount，需要在管理器里安装 `meta-overlayfs` 之类的 metamodule�
 
 ## 已知风险
 
-- 内核源码现为 PixelOS-Devices 的 stock 提交 `f914d0b`，vermagic/符号 CRC 与
-  ROM 一致，`/vendor/lib/modules` 的 `rmnet_perf`/`rmnet_shs`/`gspca_main`
-  预期可正常加载（待本次构建验证）。
+- 内核源码现为 PixelOS-Devices 的 stock 提交 `f914d0b`，vermagic 与 ROM 一致，但
+  `/vendor/lib/modules` 的 `rmnet_perf`/`rmnet_shs`/`gspca_main` **加载失败**：
+  `disagrees about version of symbol module_layout`（`struct module` 布局与出包内核
+  不同，说明 `f914d0b` 与出包源码仍有差异，对应 `techpack/audio` 那 3 个文件）。
+  实测不影响开机与数据网络，只影响网络性能模块和 UVC 摄像头驱动。
 - 源码现直接使用 ROM 对应的 stock 提交 `f914d0b`；后续 OTA 需同步换成新 ROM 的
   stock 提交（GitHub 上按 `PixelOS-Devices` 的提交取 archive）。
 - LTO/CFI/SHADOW_CALL_STACK 与 stock 一致；但 CI runner 只有 4 核，LTO 链接阶段
@@ -230,3 +232,52 @@ Magic Mount，需要在管理器里安装 `meta-overlayfs` 之类的 metamodule�
 - 已在真机 alioth / slot b（PixelOS 20261112）验证开机、KSU post-fs-data、
   metamodule 挂载、OpenEUICC、SUSFS 命令；slot a 保留 20261024 作回滚。
 - 若 PixelOS 后续把内核升到 `cip137/st21`，需要重新生成源码快照并核对 vermagic。
+
+## 刷机与救砖备忘（2026-11-22 实测）
+
+### `fastboot boot` 在这台机器上是空操作
+
+`fastboot boot <img>` 会返回 `Booting OKAY`，但**不会加载传入的镜像**，设备只是重启进
+分区里的内核。验证方法：启动后看 `/proc/version`，显示的仍是分区内核的编译器 banner。
+
+→ 任何「内存引导验证内核」的结论都不可信，只能靠 `fastboot flash boot_<slot>` 验证。
+
+### 槽位降级会让所有启动都失败
+
+每次启动失败，bootloader 会把该槽的 `slot-retry-count` 减一；归零后标
+`slot-unbootable=yes`、自动切到另一个槽。若另一个槽是**旧版本系统**，它配不上已被
+新 ROM 升级过的 `/data`，表现就是「第一屏 → 约 20 秒 → 黑屏重启」的无限循环，
+而且此时无论刷什么内核都同样失败（因为系统是旧的那个）。
+
+恢复：
+
+```sh
+fastboot --set-active=b          # 复位槽位 + retry 计数
+fastboot flash boot_b <boot.img> # 刷回已知可启动的内核
+fastboot reboot
+```
+
+### `Automatic_brick_rescue` 模块会放大故障
+
+该 Magisk/KSU 模块（搞机助手生成）的逻辑：
+
+- `post-fs-data`：启动计数 `Number_of_starts.log`，等于 2 时 `chmod 000
+  service.d/*` 并**禁用所有模块 + reboot**；≥4 时每次开机无条件 `reboot`；
+- `service.sh`：开机 3 分钟后若 `init.svc.bootanim` 仍不是 `stopped`，**禁用所有模块 +
+  reboot**。
+
+所以只要有一次启动没在 3 分钟内完成开机动画，它就会把所有模块打上 `disable` 并主动
+重启，计数到 4 之后变成无限重启。排查内核问题时建议先 `touch
+/data/adb/modules/Automatic_brick_rescue/disable` 并复位
+`Number_of_starts.log`。
+
+### LTO/CFI 内核与 Zygisk Next 冲突
+
+LTO+CFI 内核（clang 20.0.0，`CONFIG_LTO_CLANG/CFI_CLANG/SHADOW_CALL_STACK=y`，
+可从 `/proc/config.gz` 确认）本身可以正常开机、KSU 正常、dmesg 无 CFI 失败；但
+Zygisk Next 注入 zygote 失败，`/data/adb/zygisksu/.abort_msg` 记录
+`❌ Last injection failed!` / `❌ Module files corrupted`，随后自禁用，系统中没有
+`zn-*` 进程，LSPosed 也随之失效。注入失败还会连带把 zygote 拖进重启循环。
+
+非 LTO 内核（`artifacts/20261024` 那套 clang 18 构建）上 Zygisk Next 正常（有
+`zn-nsdaemon-zygote` 进程）。需要 LSPosed 时优先用非 LTO 内核。
