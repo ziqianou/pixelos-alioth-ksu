@@ -29,9 +29,10 @@
 ```
 
 > 20261112 ROM 的 stock 配置已用 `scripts/extract-ikconfig` 从其 `boot.img` 提取，
-> 与 `config/device.config` 完全一致；因此只更新了 UTS 字符串，源码快照本身不变。
-
-CI 中关闭 LTO/CFI（runner 磁盘/内存有限）；KSU/SUSFS 不依赖它们，vermagic 也不受影响。
+> 与 `config/device.config` 完全一致。构建按维护者给的 `build.sh` 复现配方：
+> `vendor/kona-perf_defconfig` + `vendor/xiaomi/sm8250-common.config` +
+> `vendor/xiaomi/alioth.config`，工具链用 AOSP prebuilt `clang-r547379`
+> （clang 20.0.0），LTO/CFI/SHADOW_CALL_STACK 与 stock 保持一致（不再关闭）。
 
 ## 目录
 
@@ -41,9 +42,9 @@ patches/ksu-newfstat-hook.patch          # fstat(2) 报告追加的 KSU init.rc 
 patches/cap-checkpoint-restore.patch     # 旧底座用；stock 源码已含，workflow 不再应用
 patches/memcg-lru-size-warn.patch        # memcg lru_size WARN 改为 pr_warn，避免 taint
 patches/ksu-avc-spoof-hook.patch         # slow_avc_audit 调用 KSU，avc_spoof 才生效
-patches/kernelsu-susfs.diff              # 历史参考，当前 workflow 不应用
-config/device.config                     # 从设备 /proc/config.gz 导出的完整配置
-config/ksu.fragment                      # KSU/SUSFS/vermagic/LTO 覆盖
+patches/kernelsu-susfs.diff              # KSU-Next/SUSFS 手动 hook 总集成（含 fs/susfs.c）
+config/device.config                     # 从设备 /proc/config.gz 导出的完整配置（对照用）
+config/ksu.fragment                      # KSU/SUSFS/vermagic 覆盖
 ksu/drivers_kernelsu/                    # KernelSU-Next v3.4.2-legacy 源码
 ```
 
@@ -219,7 +220,8 @@ Magic Mount，需要在管理器里安装 `meta-overlayfs` 之类的 metamodule�
   预期可正常加载（待本次构建验证）。
 - 源码现直接使用 ROM 对应的 stock 提交 `f914d0b`；后续 OTA 需同步换成新 ROM 的
   stock 提交（GitHub 上按 `PixelOS-Devices` 的提交取 archive）。
-- LTO/CFI 关闭，与原厂内核不同，只影响安全加固。
+- LTO/CFI/SHADOW_CALL_STACK 与 stock 一致；但 CI runner 只有 4 核，LTO 链接阶段
+  耗时和内存占用明显更高（预计 60–100 分钟），若 OOM 需回退到 `CONFIG_LTO_NONE`。
 - 已在真机 alioth / slot b（PixelOS 20261112）验证开机、KSU post-fs-data、
   metamodule 挂载、OpenEUICC、SUSFS 命令；slot a 保留 20261024 作回滚。
 - 若 PixelOS 后续把内核升到 `cip137/st21`，需要重新生成源码快照并核对 vermagic。

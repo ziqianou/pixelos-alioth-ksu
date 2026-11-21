@@ -4,17 +4,12 @@ CONFIG_KSU_MANUAL_HOOK=y
 CONFIG_KSU_SUSFS=y
 
 # Match the running PixelOS 17 kernel vermagic exactly, so /vendor .ko modules load.
-# The workflow overwrites localversion-cip/-st with -cip136 / -st20.
+# The workflow overwrites localversion-cip/-st with -cip136 / -st20. The shipped
+# kernel gets -perf-g<sha> from CONFIG_LOCALVERSION_AUTO, which cannot be
+# reproduced from a tarball without .git, so pin the same string and turn AUTO off.
 CONFIG_LOCALVERSION="-perf-gf914d0b24613"
 # CONFIG_LOCALVERSION_AUTO is not set
 
-# Hosted runners are disk/RAM constrained. KSU/SUSFS do not need LTO/CFI, and
-# vendor modules are matched by vermagic + symbol CRCs (type based), not LTO.
-CONFIG_LTO_NONE=y
-# CONFIG_LTO_CLANG is not set
-# CONFIG_CFI_CLANG is not set
-# CONFIG_CFI_CLANG_SHADOW is not set
-
-# clang 18 (CI) emits a larger LZ4 stack frame than the stock clang 22 build;
-# disable -Wframe-larger-than so -Werror does not break lib/lz4.
-CONFIG_FRAME_WARN=0
+# Everything else (LTO_CLANG, CFI_CLANG, SHADOW_CALL_STACK, FRAME_WARN=4096, ...)
+# is left exactly as vendor/kona-perf_defconfig + vendor/xiaomi/*.config set it,
+# so the result matches the kernel that ships in the ROM.
