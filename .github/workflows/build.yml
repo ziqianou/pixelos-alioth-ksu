@@ -117,12 +117,14 @@ jobs:
           printf -- '-cip136' > localversion-cip
           printf -- '-st20' > localversion-st
           mkdir -p out
-          # Same defconfig chain the maintainer's build.sh uses.
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
-            CC="ccache clang" CXX="ccache clang++" \
-            vendor/kona-perf_defconfig \
-            vendor/xiaomi/sm8250-common.config \
-            vendor/xiaomi/alioth.config
+          # Use the exact .config embedded in the shipped 20261112 boot.img.
+          # build.sh's chain (vendor/kona-perf_defconfig + the two xiaomi
+          # fragments) does not reproduce it: the alioth fragment turns on
+          # CONFIG_CRYPTO_LZ4HC=y, which the shipped kernel has disabled, and
+          # that symbol does not even compile in this tree (crypto/lz4hc.c uses
+          # the upstream-only name LZ4HC_DEFAULT_CLEVEL; lib/lz4/lz4hc.h only
+          # defines LZ4HC_CLEVEL_DEFAULT).
+          cp ../config/device.config out/.config
           scripts/kconfig/merge_config.sh -O out -m out/.config ../config/ksu.fragment
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC="ccache clang" CXX="ccache clang++" olddefconfig
@@ -132,9 +134,6 @@ jobs:
           grep -q '^CONFIG_LTO_CLANG=y' out/.config
           grep -q '^CONFIG_CFI_CLANG=y' out/.config
           grep -q '^CONFIG_SHADOW_CALL_STACK=y' out/.config
-          echo "--- drift vs the .config embedded in the shipped 20261112 kernel ---"
-          diff <(grep -E '^CONFIG_' out/.config | sort) \
-               <(grep -E '^CONFIG_' ../config/device.config | sort) | head -40 || true
 
       - name: Build Image
         run: |

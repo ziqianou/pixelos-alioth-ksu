@@ -29,10 +29,15 @@
 ```
 
 > 20261112 ROM 的 stock 配置已用 `scripts/extract-ikconfig` 从其 `boot.img` 提取，
-> 与 `config/device.config` 完全一致。构建按维护者给的 `build.sh` 复现配方：
-> `vendor/kona-perf_defconfig` + `vendor/xiaomi/sm8250-common.config` +
-> `vendor/xiaomi/alioth.config`，工具链用 AOSP prebuilt `clang-r547379`
-> （clang 20.0.0），LTO/CFI/SHADOW_CALL_STACK 与 stock 保持一致（不再关闭）。
+> 与 `config/device.config` 完全一致，构建直接以它为准。工具链按维护者给的
+> `build.sh` 换成 AOSP prebuilt `clang-r547379`（clang 20.0.0），
+> LTO/CFI/SHADOW_CALL_STACK 与 stock 保持一致（不再关闭）。
+>
+> `build.sh` 里的 defconfig 链（`vendor/kona-perf_defconfig` + 两个 xiaomi
+> fragment）不能照抄：`vendor/xiaomi/alioth.config` 打开了 `CONFIG_CRYPTO_LZ4HC=y`，
+> 而 shipped 内核该符号是关的，且这个符号在 4.19 这棵树上根本编不过
+> （`crypto/lz4hc.c` 用的是上游名 `LZ4HC_DEFAULT_CLEVEL`，
+> `lib/lz4/lz4hc.h` 只定义了 `LZ4HC_CLEVEL_DEFAULT`）。
 
 ## 目录
 
