@@ -102,8 +102,20 @@ Workflow 会：
 跑完后下载 artifact：`boot-ksu.img`、`Image`、`System.map`、
 `KernelSU_Next_v3.4.2_33355-release.apk`。
 
+最近一次已验证构建：run `44543194489`（20261112），产物在 `../artifacts/20261112/`。
+
 > 更新 manager 后先打开一次 app（或确认 `/data/adb/ksud` 已是新版本）再重启，
 > 否则该次开机的 ksud 仍是旧 ABI，post-fs-data/模块脚本会被跳过一次。
+
+## 提交与签名
+
+- 提交使用 GPG 签名（EDDSA，key `2B3C9CCF3BB93C93`，`commit.gpgsign=true`）。
+- 当前 HEAD：`e83de4a`；`5dd59b4`–`e83de4a` 为 2026-11-19 重签后的提交。
+  更早的 `3a58ff6` 是历史无签名提交，保留不动。
+- 重签方式：`git rebase --exec 'git commit --amend --no-edit -S' <base>`，
+  推送用 `git push --force-with-lease`。
+- 非交互环境签名超时时，先让 gpg-agent 缓存口令（如 `echo test | gpg --clearsign`），
+  不要用 `-c commit.gpgsign=false` 产生无签名提交。
 
 ## 刷入 / 回滚（当前槽 `_b`，PixelOS 20261112）
 
