@@ -387,3 +387,20 @@ ld.lld: warning: ../lib/lz4/lz4.c:1370:0: stack frame size (16496) exceeds limit
   `/data/adb/ksu/bin/resetprop` 回退。
 - Tricky Store 守护进程启动失败（`verify1 failed` / `unverified!`）时，用同版本官方
   包 `ksud module install` 重装即可恢复。
+
+### cmdline 伪装会引入新矛盾（已回滚）
+
+SUSFS 的 `spoof_cmdline=1` 只改 `/proc/cmdline`，改不到
+`/proc/device-tree/chosen/bootargs`：
+
+```console
+/proc/cmdline                     -> androidboot.verifiedbootstate=green   (伪装)
+/proc/device-tree/chosen/bootargs -> androidboot.verifiedbootstate=orange  (真实)
+```
+
+两者不一致会被 Hunter 的 `Kernel Runtime Consistency Incomplete` 抓到（高风险项从
+9 变 10），所以保持 `spoof_cmdline=0`。
+
+`ro.boot.verifiedbootstate=green` 仍然必须用 `resetprop` 设置（Play Integrity 需要
+locked 状态），代价是 `Find Prop Modify Mark` 里这一项无法消除；`ro.build.tags` /
+`ro.build.type` 这类本来就正确的属性不要再写（每写一次都会 bump prop serial）。
