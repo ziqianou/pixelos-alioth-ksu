@@ -96,11 +96,6 @@ jobs:
           # on every boot (/proc/sys/kernel/tainted = 4), which root-detection
           # scanners flag. Keep the warning, drop the taint.
           patch -p1 -d kernel < patches/no-cpu-taint.patch
-          # Rewrite androidboot.verifiedbootstate/vbmeta/flash.locked in the
-          # kernel cmdline and the DT /chosen/bootargs (same length, in place),
-          # so init sets ro.boot.* itself: no resetprop serial anomaly and every
-          # reader sees the same values.
-          patch -p1 -d kernel < patches/androidboot-spoof.patch
 
       - name: Restore ccache
         uses: actions/cache@v4
