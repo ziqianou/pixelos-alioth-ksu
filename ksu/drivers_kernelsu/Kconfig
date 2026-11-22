@@ -169,6 +169,17 @@ config KSU_SUSFS_SUS_MAP
         - It may not be able to evade detections by apps that implement a good injection detection.
         - Effective only on zygote spawned umounted user app process.
 
+config KSU_SUSFS_SUS_OVERLAYFS
+    bool "Enable to report overlayfs mounts as their underlying filesystem"
+    depends on KSU_SUSFS_SUS_MOUNT
+    default y
+    help
+        - Make ovl_getattr()/ovl_statfs()/ovl_path_open() resolve the lower layer,
+          so non-root processes see erofs/ext4/f2fs instead of overlayfs.
+        - Keeps statfs() consistent with the mountinfo entries KSU hides, which
+          is what root-detection scanners compare.
+        - Effective only on processes without su.
+
 config KSU_SUSFS_SUS_MEMFD
     bool "Enable to hide or spoof suspicous memfd (experimental)"
     depends on KSU_SUSFS
