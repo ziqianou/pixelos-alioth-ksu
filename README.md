@@ -404,3 +404,15 @@ SUSFS 的 `spoof_cmdline=1` 只改 `/proc/cmdline`，改不到
 `ro.boot.verifiedbootstate=green` 仍然必须用 `resetprop` 设置（Play Integrity 需要
 locked 状态），代价是 `Find Prop Modify Mark` 里这一项无法消除；`ro.build.tags` /
 `ro.build.type` 这类本来就正确的属性不要再写（每写一次都会 bump prop serial）。
+
+### 不要在内核里改 androidboot.verifiedbootstate（实测会挂）
+
+曾尝试在 `arch/arm64/kernel/setup.c` 里把 `boot_command_line` 和
+`/chosen/bootargs` 的 `verifiedbootstate=orange` 就地改成 `green`（连同
+`flash.locked` / `vbmeta.device_state`），让 init 原生设置 `ro.boot.*`。结果**卡在第一屏**，
+无法进入系统。
+
+原因：这些 `androidboot.*` 参数不只是给用户态看的，init 会据此决定是否按 locked/AVB
+校验流程挂载分区。太早把它们改成 locked/green，会让 init 走签名校验路径并失败。
+所以 `ro.boot.verifiedbootstate=green` 只能在 init 之后用 `resetprop` 改（代价是那项
+prop serial 检测无法消除），不要在启动早期碰它。
