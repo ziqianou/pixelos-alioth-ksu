@@ -320,3 +320,70 @@ reboot
 `meta-overlayfs`（metamodule）/ `susfs4ksu` 的挂载时序或可见性有关；需要稳定复现时先
 把这两个模块关掉再测。日常恢复：KSU 管理器里把 Zygisk Next 关一次再开，或挪走
 `disable` 后重启。
+
+## 反 root 检测（Hunter 6.72）与内核侧修复
+
+实测设备用 `com.zhenxi.hunter` 扫描（28 项，高风险 2 项）。三项可操作的问题及处理：
+
+### Kernel Tainted（`/proc/sys/kernel/tainted = 4`）
+
+来源是 `arch/arm64/kernel/cpufeature.c` 的
+`add_taint(TAINT_CPU_OUT_OF_SPEC, ...)`（taint 位 2），dmesg 表现为：
+
+```
+[    0.014723] CPU features: Unsupported CPU feature variation detected.
+```
+
+Qualcomm 的 big.LITTLE 特性表本来就对不上，所以每次开机必打这个标记。taint **不能从
+用户态清除**（`echo 0 > /proc/sys/kernel/tainted` 被内核忽略，该 sysctl 只置位不清位），
+只能改内核：`patches/no-cpu-taint.patch` 保留 warning、去掉 `add_taint()`，刷入后
+`tainted = 0`。
+
+### Find Root Mark In Mountinfo（`OVERLAYFS_SUPER_MAGIC`）
+
+KSU 会把模块的 overlay 挂载从普通进程的 `mountinfo` 里隐藏，但 `statfs()` 仍返回
+overlay magic，检测器一比就暴露：
+
+```console
+# shell(uid 2000)
+grep -ci overlay /proc/self/mountinfo   -> 0
+stat -f /system                         -> Type: overlay     # 不一致
+```
+
+修复是启用 `CONFIG_KSU_SUSFS_SUS_OVERLAYFS`（让非 root 进程看到底层 fs）：
+
+```console
+stat -f /system   -> Type: ext3/4        # root 和 shell 一致
+```
+
+两个坑：
+
+1. 这个符号**没有定义在 `ksu/drivers_kernelsu/Kconfig` 里**，只在 `fs/overlayfs/*`
+   的 `#ifdef` 中引用。不补 Kconfig 条目的话，`CONFIG_...=y` 会被 `olddefconfig`
+   静默丢弃（构建不报错，但功能没生效）。
+2. 同一套 patch 里的 `CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT` /
+   `..._AUTO_ADD_SUS_BIND_MOUNT` **只有声明和调用、没有实现**，打开会链接失败，别开。
+
+### SELinux Policy Oracle Untrusted ×2
+
+`reasonCodes=[CONTEXT_CHANNEL_DISAGREEMENT:3,4,5,10,11]`：同一 SELinux 上下文经不同
+通道读出的结果不一致。这是 KSU 改写内核 sepolicy 的必然结果，本 patch 版本的 SUSFS 也
+没有 `AVC_LOG_SPOOFING`（`ksu_susfs --help` 里没有该命令，`show enabled_features`
+里也没有），要消除只能换更新版 SUSFS 底座，收益不大。
+
+### 顺带：LTO 链接期的 lz4 栈帧警告
+
+```console
+ld.lld: warning: ../lib/lz4/lz4.c:1370:0: stack frame size (16496) exceeds limit (4096)
+```
+
+`CONFIG_FRAME_WARN=4096` 在 LTO 下由 `ld.lld` 在链接期报出，链接期警告不吃 `-Werror`，
+不影响产物；官方内核（同 LTO+CFI+同配置）也会报同样的两条，无需处理。
+
+### 相关设备侧修复（非内核）
+
+- `pi_props.sh` 只找 Magisk 的 `resetprop`，在 KSU 上直接 `exit 0`，导致
+  PIF 属性（fingerprint / 安全补丁 / verifiedbootstate）从未生效；已加
+  `/data/adb/ksu/bin/resetprop` 回退。
+- Tricky Store 守护进程启动失败（`verify1 failed` / `unverified!`）时，用同版本官方
+  包 `ksud module install` 重装即可恢复。
