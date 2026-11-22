@@ -92,6 +92,10 @@ jobs:
           patch -p1 -d kernel < patches/memcg-lru-size-warn.patch
           # avc_spoof only works when slow_avc_audit feeds tsid to KSU.
           patch -p1 -d kernel < patches/ksu-avc-spoof-hook.patch
+          # Qualcomm's mixed big.LITTLE feature tables set TAINT_CPU_OUT_OF_SPEC
+          # on every boot (/proc/sys/kernel/tainted = 4), which root-detection
+          # scanners flag. Keep the warning, drop the taint.
+          patch -p1 -d kernel < patches/no-cpu-taint.patch
 
       - name: Restore ccache
         uses: actions/cache@v4

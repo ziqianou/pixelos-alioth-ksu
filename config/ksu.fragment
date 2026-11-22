@@ -13,3 +13,11 @@ CONFIG_LOCALVERSION="-perf-gf914d0b24613"
 # Everything else (LTO_CLANG, CFI_CLANG, SHADOW_CALL_STACK, FRAME_WARN=4096, ...)
 # is left exactly as vendor/kona-perf_defconfig + vendor/xiaomi/*.config set it,
 # so the result matches the kernel that ships in the ROM.
+
+# SUSFS hardening / hiding. SUS_OVERLAYFS presents overlayfs mounts as their
+# underlying filesystem to non-root processes, so statfs() stays consistent with
+# the mountinfo entries KSU already hides (root detectors compare the two).
+# The AUTO_ADD_* options hide KSU's own default and bind mounts automatically.
+CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
