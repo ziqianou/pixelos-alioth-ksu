@@ -124,10 +124,30 @@ LTO / CFI / SHADOW_CALL_STACK / `FRAME_WARN=4096` 全部沿用 shipped 值。
 | `patches/memcg-lru-size-warn.patch` | 4.19 的 `lru_size` 调试检查改成 `pr_warn`，避免每次开机 taint（bit 9） |
 | `patches/ksu-avc-spoof-hook.patch` | 让 `slow_avc_audit` 把 tsid 传给 KSU，`avc_spoof` 才生效 |
 | `patches/no-cpu-taint.patch` | Qualcomm 的 big.LITTLE 特性表每次开机都会打 `TAINT_CPU_OUT_OF_SPEC`（`tainted=4`）并在 dmesg 留 warning；补丁去掉这两者 |
+| `patches/nf-queue-skb-dev-ip-guard.patch` | f914d0b 自带的 CIP `skb_dev` 回移只对 bridge 包有意义；IP LOCAL_OUT 重传包的 `skb->dev` 可能是上一次发送的设备，网络切换后 `dev_hold()` 会 panic。只在 `NFPROTO_BRIDGE` 时保存/持有 |
 | `patches/cap-checkpoint-restore.patch` | 历史补丁，stock 源码已自带，**workflow 不应用** |
 
 `SUS_OVERLAYFS` 的 Kconfig 定义在 `ksu/drivers_kernelsu/Kconfig`（上游整合 patch 里只引用了
 `#ifdef`，没有 config 项，不补定义的话 `=y` 会被 `olddefconfig` 静默丢弃）。
+
+### nf_queue panic（2026-11-27，已修复）
+
+f914d0b 带了 CIP 回移的 `netfilter: nf_queue: hold bridge skb->dev while queued`
+（mainline `e196115ec330`）。它把 `skb->dev` 存进 `nf_queue_entry` 并对每个排队包
+`dev_hold()`；但 IP LOCAL_OUT 路径的 `skb->dev` 还是上一次发送时的设备
+（`ip_output()` 在 POST_ROUTING 才更新），网络切换后指针已失效，重传的 TCP 包就会在
+`nf_queue_entry_get_refs()` 里 `dev_hold()` 踩空：
+
+```
+pc : nf_queue_entry_get_refs+0x4c
+nf_queue → nf_hook_slow → __ip_local_out → __ip_queue_xmit
+→ __tcp_transmit_skb → __tcp_retransmit_skb → tcp_ack
+Kernel panic - not syncing: Fatal exception
+```
+
+`patches/nf-queue-skb-dev-ip-guard.patch` 只在 `NFPROTO_BRIDGE` 时保存 `skb_dev`
+（bridge 场景保留上游修复），IP 路径恢复 4.19 原行为。当前 `artifacts/20261127`
+（run `45993556608`）就是带这个补丁的构建。
 
 ### 流水线
 
