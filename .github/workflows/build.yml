@@ -96,6 +96,13 @@ jobs:
           # on every boot (/proc/sys/kernel/tainted = 4), which root-detection
           # scanners flag. Keep the warning, drop the taint.
           patch -p1 -d kernel < patches/no-cpu-taint.patch
+          # f914d0b carries the CIP backport of "nf_queue: hold bridge
+          # skb->dev while queued". It pins skb->dev for every queued packet,
+          # but on the IP LOCAL_OUT path skb->dev can still point at a device
+          # from a previous transmission (ip_output() updates it later), which
+          # panics in dev_hold() after a route/interface change. Only pin it
+          # for bridged packets; that is the case the backport was written for.
+          patch -p1 -d kernel < patches/nf-queue-skb-dev-ip-guard.patch
 
       - name: Restore ccache
         uses: actions/cache@v4
